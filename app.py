@@ -183,7 +183,6 @@ HTML_TEMPLATE = """
 <body>
 
 <div class="main-card">
-    <!-- Üst Başlık (Sohbet Ekranında Çıkış Butonu ile) -->
     <div class="card-header-custom">
         <div class="d-flex align-items-center gap-2.5">
             <span class="status-dot"></span>
@@ -192,13 +191,12 @@ HTML_TEMPLATE = """
                 <small class="text-success" style="font-size: 11px;">Güvenli Hat Aktif</small>
             </div>
         </div>
-        <!-- Çıkış Yap Butonu (Sadece Sohbet Ekranında Aktif) -->
         <button id="logoutBtn" onclick="logoutSession()" class="btn-logout d-none">
             <i class="bi bi-box-arrow-right"></i> Çıkış Yap
         </button>
     </div>
 
-    <!-- EKRAN 1: Giriş ve Yapay Zeka / KVKK Bilgilendirmesi -->
+    <!-- EKRAN 1 -->
     <div id="welcomeScreen" class="card-body-custom {% if registered %}d-none{% endif %}">
         <div class="text-center mb-4">
             <div class="fs-1 mb-2">🚗🔒</div>
@@ -231,7 +229,7 @@ HTML_TEMPLATE = """
         </form>
     </div>
 
-    <!-- EKRAN 2: Canlı ve Temizlenmiş Sohbet Paneli -->
+    <!-- EKRAN 2 -->
     <div id="chatScreen" class="{% if not registered %}d-none{% endif %} d-flex flex-column" style="flex: 1;">
         <div class="chat-body" id="chatBody">
             <div class="message driver">
@@ -250,7 +248,6 @@ HTML_TEMPLATE = """
 </div>
 
 <script>
-    // Sayfa yüklendiğinde oturum durumuna göre çıkış butonunu göster/gizle
     window.addEventListener('DOMContentLoaded', () => {
         const isRegistered = "{{ 'true' if registered else 'false' }}" === 'true';
         if(isRegistered) {
@@ -288,7 +285,6 @@ HTML_TEMPLATE = """
                 document.getElementById('logoutBtn').classList.add('d-none');
                 document.getElementById('visitorName').value = '';
                 document.getElementById('visitorPhone').value = '';
-                // Mesaj alanını sıfırla
                 document.getElementById('chatBody').innerHTML = '<div class="message driver">🤖 <strong>Yapay Zeka Asistanı:</strong> Bağlantı kuruldu! Sürücüye çağrı iletildi. Mesajınızı yazabilirsiniz.</div>';
             }
         });
@@ -360,6 +356,7 @@ def register():
         "🚨 *YAPAY ZEKA ASİSTANI: ACİL ÇAĞRI!* 🚨\n\n"
         f"🚗 *Plaka / Ad:* {name}\n"
         f"📞 *Telefon:* {phone}\n\n"
+        f"🔑 *Oturum ID:* `{sid}`\n\n"
         "🤖 _Yapay zeka aracı tarayan kişiyi doğruladı, hat aktif._"
     )
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -376,7 +373,6 @@ def logout():
     if sid and sid in active_sessions:
         del active_sessions[sid]
         
-    # Telegram'a çıkış bildirimi
     telegram_text = (
         "🚪 *GÜVENLİ OTURUM KAPANDI* 🚪\n\n"
         f"🚗 *Plaka / Ad:* {name}\n"
@@ -392,6 +388,7 @@ def logout():
 @app.route("/send", methods=["POST"])
 def send():
     sid = session.get("sid")
+    name = session.get("name", "Bilinmiyor")
     if not sid or sid not in active_sessions:
         return jsonify({"status": "error"})
         
@@ -400,7 +397,7 @@ def send():
     
     active_sessions[sid].append({"sender": "visitor", "text": msg})
     
-    telegram_text = f"💬 *CANLI MESAJ:*\n\n{msg}"
+    telegram_text = f"💬 *{name} (Mesaj):*\n\n{msg}\n\n🔑 *ID:* `{sid}`"
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": telegram_text, "parse_mode": "Markdown"})
     
@@ -415,7 +412,6 @@ def get_messages():
 
 def telegram_listener():
     global last_update_id
-    # Render üzerinde arka plan döngüsünün kararlı çalışması için kısa bir başlangıç gecikmesi
     time.sleep(2)
     while True:
         try:
@@ -429,17 +425,27 @@ def telegram_listener():
                     if "message" in update and str(update["message"]["chat"]["id"]) == str(TELEGRAM_CHAT_ID):
                         if "text" in update["message"]:
                             driver_text = update["message"]["text"]
-                            # Sistem bilgilendirme veya çıkış bildirimlerini mesaj olarak algılamasın
+                            
+                            # Sistem mesajlarını eleme
                             if not driver_text.startswith("🚨 *YAPAY ZEKA") and not driver_text.startswith("🚪 *GÜVENLİ OTURUM"):
-                                if active_sessions:
-                                    # Aktif olan son oturuma mesajı ekle
-                                    latest_sid = list(active_sessions.keys())[-1]
-                                    active_sessions[latest_sid].append({"sender": "driver", "text": driver_text})
+                                # Eğer mesaja kullanıcı ID'si iliştirildiyse doğrudan o oturuma ekle
+                                target_sid = None
+                                for sid_key in active_sessions.keys():
+                                    if sid_key in driver_text:
+                                        target_sid = sid_key
+                                        break
+                                
+                                # Eğer özel ID bulunamazsa en son aktif oturuma yaz
+                                if not target_sid and active_sessions:
+                                    target_sid = list(active_sessions.keys())[-1]
+                                    
+                                if target_sid and target_sid in active_sessions:
+                                    active_sessions[target_sid].append({"sender": "driver", "text": driver_text})
         except Exception as e:
             print("Telegram dinleme hatası:", e)
-            time.sleep(5) # Hata alırsan 5 saniye bekleyip tekrar dene
+            time.sleep(5)
         
-        time.sleep(1) # Döngüyü yormamak için kısa bir pas
+        time.sleep(1)
 
 if __name__ == "__main__":
     t = threading.Thread(target=telegram_listener, daemon=True)
