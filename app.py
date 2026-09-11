@@ -6,7 +6,7 @@ import requests
 from flask import Flask, render_template_string, request, jsonify, session
 
 app = Flask(__name__)
-app.secret_key = str(uuid.uuid4())
+app.secret_key = "sea_cok_gizli_guvenli_anahtar_2026"
 
 # Telegram Bot Bilgilerin
 TELEGRAM_BOT_TOKEN = "8710742813:AAFIu8P4uqfRfTNK4OFoT9bD1mOqajZLWDI"
