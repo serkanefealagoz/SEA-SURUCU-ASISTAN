@@ -446,9 +446,14 @@ def telegram_listener():
             time.sleep(5)
         
         time.sleep(1)
+# Render (Gunicorn) başlatırken Thread'in devreye girmesi için buraya alıyoruz
+t = threading.Thread(target=telegram_listener, daemon=True)
+t.start()
+
+
+# Render (Gunicorn) başlatırken Thread'in devreye girmesi için buraya alıyoruz
+t = threading.Thread(target=telegram_listener, daemon=True)
+t.start()
 
 if __name__ == "__main__":
-    t = threading.Thread(target=telegram_listener, daemon=True)
-    t.start()
-    
     app.run(debug=True, port=5000, use_reloader=False)
