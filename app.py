@@ -1,7 +1,7 @@
 import os
 import time
 import threading
-import uuid
+import json
 import requests
 from flask import Flask, render_template_string, request, jsonify, session
 
@@ -12,8 +12,24 @@ app.secret_key = "sea_cok_gizli_guvenli_anahtar_2026"
 TELEGRAM_BOT_TOKEN = "8710742813:AAFIu8P4uqfRfTNK4OFoT9bD1mOqajZLWDI"
 TELEGRAM_CHAT_ID = "7245389074"
 
-active_sessions = {}
+DATA_FILE = "sessions.json"
+data_lock = threading.Lock()
 last_update_id = 0
+
+def load_data():
+    with data_lock:
+        if not os.path.exists(DATA_FILE):
+            return {}
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+
+def save_data(data):
+    with data_lock:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -345,12 +361,16 @@ def register():
     name = data.get("name", "Bilinmiyor")
     phone = data.get("phone", "Bilinmiyor")
     
+    import uuid
     sid = str(uuid.uuid4())
     session["sid"] = sid
     session["registered"] = True
     session["name"] = name
     session["phone"] = phone
-    active_sessions[sid] = []
+    
+    db = load_data()
+    db[sid] = []
+    save_data(db)
     
     telegram_text = (
         "🚨 *YAPAY ZEKA ASİSTANI: ACİL ÇAĞRI!* 🚨\n\n"
@@ -370,8 +390,10 @@ def logout():
     name = session.get("name", "Bilinmiyor")
     phone = session.get("phone", "Bilinmiyor")
     
-    if sid and sid in active_sessions:
-        del active_sessions[sid]
+    db = load_data()
+    if sid and sid in db:
+        del db[sid]
+        save_data(db)
         
     telegram_text = (
         "🚪 *GÜVENLİ OTURUM KAPANDI* 🚪\n\n"
@@ -389,13 +411,16 @@ def logout():
 def send():
     sid = session.get("sid")
     name = session.get("name", "Bilinmiyor")
-    if not sid or sid not in active_sessions:
+    
+    db = load_data()
+    if not sid or sid not in db:
         return jsonify({"status": "error"})
         
     data = request.get_json()
     msg = data.get("message", "")
     
-    active_sessions[sid].append({"sender": "visitor", "text": msg})
+    db[sid].append({"sender": "visitor", "text": msg})
+    save_data(db)
     
     telegram_text = f"💬 *{name} (Mesaj):*\n\n{msg}\n\n🔑 *ID:* `{sid}`"
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -406,9 +431,10 @@ def send():
 @app.route("/get-messages")
 def get_messages():
     sid = session.get("sid")
-    if not sid or sid not in active_sessions:
+    db = load_data()
+    if not sid or sid not in db:
         return jsonify([])
-    return jsonify(active_sessions[sid])
+    return jsonify(db[sid])
 
 def telegram_listener():
     global last_update_id
@@ -428,30 +454,28 @@ def telegram_listener():
                             
                             # Sistem mesajlarını eleme
                             if not driver_text.startswith("🚨 *YAPAY ZEKA") and not driver_text.startswith("🚪 *GÜVENLİ OTURUM"):
-                                # Eğer mesaja kullanıcı ID'si iliştirildiyse doğrudan o oturuma ekle
+                                db = load_data()
                                 target_sid = None
-                                for sid_key in active_sessions.keys():
+                                
+                                for sid_key in db.keys():
                                     if sid_key in driver_text:
                                         target_sid = sid_key
                                         break
                                 
-                                # Eğer özel ID bulunamazsa en son aktif oturuma yaz
-                                if not target_sid and active_sessions:
-                                    target_sid = list(active_sessions.keys())[-1]
+                                # Eğer ID bulunamazsa en son aktif oturuma yaz
+                                if not target_sid and db:
+                                    target_sid = list(db.keys())[-1]
                                     
-                                if target_sid and target_sid in active_sessions:
-                                    active_sessions[target_sid].append({"sender": "driver", "text": driver_text})
+                                if target_sid and target_sid in db:
+                                    db[target_sid].append({"sender": "driver", "text": driver_text})
+                                    save_data(db)
         except Exception as e:
             print("Telegram dinleme hatası:", e)
             time.sleep(5)
         
         time.sleep(1)
-# Render (Gunicorn) başlatırken Thread'in devreye girmesi için buraya alıyoruz
-t = threading.Thread(target=telegram_listener, daemon=True)
-t.start()
 
-
-# Render (Gunicorn) başlatırken Thread'in devreye girmesi için buraya alıyoruz
+# Render / Gunicorn için dinleyiciyi dışarıda başlatıyoruz
 t = threading.Thread(target=telegram_listener, daemon=True)
 t.start()
 
