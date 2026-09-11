@@ -415,6 +415,8 @@ def get_messages():
 
 def telegram_listener():
     global last_update_id
+    # Render üzerinde arka plan döngüsünün kararlı çalışması için kısa bir başlangıç gecikmesi
+    time.sleep(2)
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=30"
@@ -430,11 +432,14 @@ def telegram_listener():
                             # Sistem bilgilendirme veya çıkış bildirimlerini mesaj olarak algılamasın
                             if not driver_text.startswith("🚨 *YAPAY ZEKA") and not driver_text.startswith("🚪 *GÜVENLİ OTURUM"):
                                 if active_sessions:
+                                    # Aktif olan son oturuma mesajı ekle
                                     latest_sid = list(active_sessions.keys())[-1]
                                     active_sessions[latest_sid].append({"sender": "driver", "text": driver_text})
         except Exception as e:
             print("Telegram dinleme hatası:", e)
-        time.sleep(2)
+            time.sleep(5) # Hata alırsan 5 saniye bekleyip tekrar dene
+        
+        time.sleep(1) # Döngüyü yormamak için kısa bir pas
 
 if __name__ == "__main__":
     t = threading.Thread(target=telegram_listener, daemon=True)
